@@ -14,6 +14,7 @@ import { MENSAGENS } from "@/shared/constants/mensagens";
 import { CodigoDeErro } from "@/shared/errors/codigos-de-erro";
 import { ErroAplicacao } from "@/shared/errors/erro-aplicacao";
 import { middlewareAutenticacao } from "@/shared/middlewares/autenticacao.middleware";
+import { middlewareTokenInterno } from "@/shared/middlewares/token-interno.middleware";
 import { pontuarRubrica } from "@/shared/utils/pontuacao-osce";
 
 // Uma troca do historico da simulacao: quem falou ("aluno" ou "paciente") e o texto.
@@ -176,6 +177,8 @@ function historicoParaContents(historico: z.infer<typeof schemaTurno>[]) {
 
 const router = Router();
 
+// Primeiro confirma que a chamada veio do BFF, depois valida o JWT do usuario final.
+router.use(middlewareTokenInterno);
 router.use(middlewareAutenticacao);
 
 // Lista publica dos cenarios: so os campos que o aluno pode ver antes de escolher —

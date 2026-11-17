@@ -16,6 +16,8 @@ import { aplicacao } from "@/app";
 
 const CENARIO_ID = CENARIOS_OSCE[0].id;
 const token = jwt.sign({ sub: "aluno-1", papel: "aluno", status: "ativo" }, "test-secret");
+// Mesmo default de teste de INTERNAL_TOKEN (ver obrigatoriaComDefaultDeTeste em config/env.ts).
+const TOKEN_INTERNO = "test-internal-token";
 
 const respostaGemini = (texto: string) => ({
   data: { candidates: [{ content: { parts: [{ text: texto }] } }] },
@@ -54,9 +56,32 @@ describe("CORS", () => {
   });
 });
 
+describe("token interno das rotas OSCE", () => {
+  it("responde 403 sem x-internal-token", async () => {
+    const resposta = await request(aplicacao)
+      .get("/osce/cenarios")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.erro.codigo).toBe("PROIBIDO");
+  });
+
+  it("responde 403 com x-internal-token errado", async () => {
+    const resposta = await request(aplicacao)
+      .get("/osce/cenarios")
+      .set("x-internal-token", "token-errado")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.erro.codigo).toBe("PROIBIDO");
+  });
+});
+
 describe("autenticacao das rotas OSCE", () => {
   it("responde 401 sem token", async () => {
-    const resposta = await request(aplicacao).get("/osce/cenarios");
+    const resposta = await request(aplicacao)
+      .get("/osce/cenarios")
+      .set("x-internal-token", TOKEN_INTERNO);
 
     expect(resposta.status).toBe(401);
     expect(resposta.body.erro.codigo).toBe("NAO_AUTORIZADO");
@@ -65,6 +90,7 @@ describe("autenticacao das rotas OSCE", () => {
   it("responde 401 com token invalido", async () => {
     const resposta = await request(aplicacao)
       .get("/osce/cenarios")
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", "Bearer token-invalido");
 
     expect(resposta.status).toBe(401);
@@ -75,6 +101,7 @@ describe("autenticacao das rotas OSCE", () => {
     const tokenMinimo = jwt.sign({}, "test-secret");
     const resposta = await request(aplicacao)
       .get("/osce/cenarios")
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${tokenMinimo}`);
 
     expect(resposta.status).toBe(200);
@@ -85,6 +112,7 @@ describe("GET /osce/cenarios", () => {
   it("lista so os campos publicos dos cenarios", async () => {
     const resposta = await request(aplicacao)
       .get("/osce/cenarios")
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`);
 
     expect(resposta.status).toBe(200);
@@ -102,6 +130,7 @@ describe("POST /osce/:id/mensagem", () => {
   it("responde 404 para cenario inexistente", async () => {
     const resposta = await request(aplicacao)
       .post("/osce/cenario-inexistente/mensagem")
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "Bom dia, como o senhor esta se sentindo?" });
 
@@ -112,6 +141,7 @@ describe("POST /osce/:id/mensagem", () => {
   it("responde 400 com mensagem vazia", async () => {
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "" });
 
@@ -124,6 +154,7 @@ describe("POST /osce/:id/mensagem", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({
         mensagem: "Bom dia, o que o senhor esta sentindo?",
@@ -140,6 +171,7 @@ describe("POST /osce/:id/mensagem", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "Alo?" });
 
@@ -152,6 +184,7 @@ describe("POST /osce/:id/mensagem", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "Alo?" });
 
@@ -164,6 +197,7 @@ describe("POST /osce/:id/mensagem", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "Alo?" });
 
@@ -176,6 +210,7 @@ describe("POST /osce/:id/mensagem", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ mensagem: "Alo?" });
 
@@ -188,6 +223,7 @@ describe("POST /osce/:id/finalizar", () => {
   it("responde 400 sem historico", async () => {
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/finalizar`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({});
 
@@ -200,6 +236,7 @@ describe("POST /osce/:id/finalizar", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/finalizar`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ historico: [{ autor: "aluno", texto: "Onde dói?" }] });
 
@@ -223,6 +260,7 @@ describe("POST /osce/:id/finalizar", () => {
 
     const resposta = await request(aplicacao)
       .post(`/osce/${cenario.id}/finalizar`)
+      .set("x-internal-token", TOKEN_INTERNO)
       .set("Authorization", `Bearer ${token}`)
       .send({ historico: [{ autor: "aluno", texto: "Onde dói e como é a dor?" }] });
 

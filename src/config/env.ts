@@ -47,6 +47,8 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().min(1).default("gemini-3.5-flash-lite"),
   // Segredo do JWT: precisa bater com o do Usuario-Service, propagado pelo BFF.
   JWT_SECRET_KEY: obrigatoriaComDefaultDeTeste("JWT_SECRET_KEY", "test-secret"),
+  // Segredo compartilhado com o BFF: prova que a chamada veio do proxy, nao direto.
+  INTERNAL_TOKEN: obrigatoriaComDefaultDeTeste("INTERNAL_TOKEN", "test-internal-token"),
   // Lista de origens liberadas no CORS, informada separada por virgula no .env.
   CORS_ORIGINS: z
     .string()

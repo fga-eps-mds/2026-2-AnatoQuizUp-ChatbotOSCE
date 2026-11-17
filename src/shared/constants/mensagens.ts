@@ -7,6 +7,7 @@ export const MENSAGENS = {
   origemCorsNaoPermitida: "Origem nao permitida pelo CORS.",
   tokenAcessoAusente: "Token de acesso ausente.",
   tokenAcessoInvalido: "Token de acesso invalido ou expirado.",
+  tokenInternoInvalido: "Token interno ausente ou invalido. Acesso permitido somente via BFF.",
   iaIndisponivel: "Servico de IA ainda nao foi habilitado nesta release.",
   respostaIaIndisponivel: "Nao foi possivel obter uma resposta da IA agora. Tente novamente.",
   falhaServicoDownstream: "Falha ao consultar o servico downstream.",

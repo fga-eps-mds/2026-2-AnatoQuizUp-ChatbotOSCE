@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+*.log
+npm-debug.log*
+
+.DS_Store
+.vscode/
+.idea/
+
+# Arquivos gerados durante testes e coleta de métricas.
+sonar-report.xml
+.scannerwork/

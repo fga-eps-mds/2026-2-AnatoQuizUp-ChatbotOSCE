@@ -35,6 +35,15 @@ jobs:
       - name: Rodar ESLint
         run: npm run lint
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Validar coleta de métricas sem acessar serviços
+        run: |
+          pip install requests python-dotenv packaging
+          python -m unittest discover -s sonar_scripts -p 'test_*.py' -v
+
       - name: Build do projeto
         run: npm run build
 

@@ -229,6 +229,23 @@ describe("POST /osce/:id/mensagem", () => {
     expect(postMock).toHaveBeenCalledTimes(1);
   });
 
+  it("envia a regra de encerramento na instrucao do paciente", async () => {
+    postMock.mockResolvedValueOnce(respostaGemini("Obrigado, doutor. Tchau."));
+
+    await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Obrigado, era isso. Tchau!" });
+
+    const payload = postMock.mock.calls[0][1] as {
+      system_instruction: { parts: { text: string }[] };
+    };
+    const instrucao = payload.system_instruction.parts[0].text;
+    expect(instrucao).toContain("UMA unica despedida curta");
+    expect(instrucao).toContain("nao repita a despedida");
+  });
+
   it("responde 502 quando a IA nao devolve texto", async () => {
     postMock.mockResolvedValueOnce({ data: { candidates: [] } });
 

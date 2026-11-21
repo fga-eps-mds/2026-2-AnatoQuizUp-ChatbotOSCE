@@ -56,12 +56,30 @@ export type ItemRubrica = {
   critico?: boolean;
 };
 
+// Cenario que o aluno le antes de abrir o chat, como a "porta da estacao" de um OSCE
+// real. E PUBLICO (vai no GET /ia/osce/cenarios) e por isso e escrito a mao, caso a
+// caso: so local, papel do aluno, idade, sexo e uma queixa curta e neutra. Nunca leva
+// profissao, temperamento, pistas do roteiro ou do diagnostico, e a queixa nao repete
+// `queixaPrincipal` (que e a fala do paciente no roteiro). Idade e sexo precisam bater
+// com o `perfilPaciente` do mesmo caso.
+export type ContextoInicialOsce = {
+  local: string;
+  papelEstudante: string;
+  idade: number;
+  sexo: "Masculino" | "Feminino";
+  queixa: string;
+};
+
 export type CenarioOsce = {
   id: string;
   titulo: string;
   especialidade: string;
   dificuldade: "Fácil" | "Médio" | "Difícil";
-  // Perfil interpretado pela IA: idade, sexo, jeito de falar — nunca exposto ao aluno.
+  // Publico: o que o aluno le na etapa de cenario, antes de iniciar o atendimento.
+  contextoInicial: ContextoInicialOsce;
+  // Perfil interpretado pela IA: profissao, temperamento, jeito de falar — nunca exposto
+  // ao aluno. Idade e sexo tambem aparecem aqui, mas o aluno so os ve pelo
+  // `contextoInicial`.
   perfilPaciente: string;
   queixaPrincipal: string;
   // Historia, exame fisico e achados que o aluno so descobre perguntando — nunca exposto.
@@ -122,6 +140,13 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     titulo: "Dor torácica no pronto-socorro",
     especialidade: "Cardiologia",
     dificuldade: "Médio",
+    contextoInicial: {
+      local: "Pronto-socorro de um hospital geral",
+      papelEstudante: "Médico(a) responsável pelo primeiro atendimento",
+      idade: 58,
+      sexo: "Masculino",
+      queixa: "Dor torácica",
+    },
     perfilPaciente:
       "Homem, 58 anos, caminhoneiro, ansioso, fala de forma direta e as vezes impaciente.",
     queixaPrincipal: "Dor no peito ha 2 horas.",
@@ -275,6 +300,13 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     titulo: "Cefaleia súbita e intensa",
     especialidade: "Neurologia",
     dificuldade: "Difícil",
+    contextoInicial: {
+      local: "Pronto-socorro de um hospital geral",
+      papelEstudante: "Médico(a) responsável pelo primeiro atendimento",
+      idade: 34,
+      sexo: "Feminino",
+      queixa: "Cefaleia",
+    },
     perfilPaciente:
       "Mulher, 34 anos, professora, fala rapido por causa da dor, fica irritada se repetirem a pergunta.",
     queixaPrincipal: "Dor de cabeça muito forte, começou de repente.",
@@ -419,6 +451,13 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     titulo: "Dor abdominal em fossa ilíaca direita",
     especialidade: "Gastroenterologia / Cirurgia",
     dificuldade: "Fácil",
+    contextoInicial: {
+      local: "Unidade de Pronto Atendimento (UPA)",
+      papelEstudante: "Médico(a) responsável pelo primeiro atendimento",
+      idade: 16,
+      sexo: "Masculino",
+      queixa: "Dor abdominal",
+    },
     perfilPaciente:
       "Adolescente, 16 anos, estudante, responde curto e fica constrangido com perguntas sobre apetite/evacuacao.",
     queixaPrincipal: "Dor na barriga desde ontem.",

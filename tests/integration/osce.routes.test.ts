@@ -122,8 +122,71 @@ describe("GET /osce/cenarios", () => {
       titulo: CENARIOS_OSCE[0].titulo,
       especialidade: CENARIOS_OSCE[0].especialidade,
       dificuldade: CENARIOS_OSCE[0].dificuldade,
+      contextoInicial: CENARIOS_OSCE[0].contextoInicial,
     });
   });
+
+  it("traz o contexto inicial de todos os casos e nenhum campo oculto", async () => {
+    const resposta = await request(aplicacao)
+      .get("/osce/cenarios")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(resposta.status).toBe(200);
+    for (const cenario of resposta.body.cenarios) {
+      expect(Object.keys(cenario.contextoInicial).sort()).toEqual(
+        ["idade", "local", "papelEstudante", "queixa", "sexo"],
+      );
+      expect(cenario).not.toHaveProperty("diagnosticoEsperado");
+      expect(cenario).not.toHaveProperty("roteiroOculto");
+      expect(cenario).not.toHaveProperty("perfilPaciente");
+      expect(cenario).not.toHaveProperty("queixaPrincipal");
+      expect(cenario).not.toHaveProperty("rubrica");
+    }
+  });
+});
+
+describe("contextoInicial dos cenarios", () => {
+  const normalizar = (texto: string) =>
+    texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+  it.each(CENARIOS_OSCE.map((cenario) => [cenario.id, cenario] as const))(
+    "%s nao revela o diagnostico esperado",
+    (_id, cenario) => {
+      const contexto = normalizar(JSON.stringify(cenario.contextoInicial));
+      expect(contexto).not.toContain(normalizar(cenario.diagnosticoEsperado));
+      // Cada palavra significativa do diagnostico (ex.: "apendicite", "coronariana")
+      // tambem nao pode aparecer isolada.
+      const palavras = normalizar(cenario.diagnosticoEsperado)
+        .split(/[^a-z]+/)
+        .filter((palavra) => palavra.length > 5);
+      for (const palavra of palavras) {
+        expect(contexto).not.toContain(palavra);
+      }
+    },
+  );
+
+  it.each(CENARIOS_OSCE.map((cenario) => [cenario.id, cenario] as const))(
+    "%s nao reaproveita a queixa do roteiro",
+    (_id, cenario) => {
+      expect(normalizar(cenario.queixaPrincipal)).not.toContain(
+        normalizar(cenario.contextoInicial.queixa),
+      );
+    },
+  );
+
+  it.each(CENARIOS_OSCE.map((cenario) => [cenario.id, cenario] as const))(
+    "%s tem idade e sexo coerentes com o perfil do paciente",
+    (_id, cenario) => {
+      const { idade, sexo } = cenario.contextoInicial;
+      expect(cenario.perfilPaciente).toContain(`${idade} anos`);
+      if (sexo === "Feminino") {
+        expect(cenario.perfilPaciente).toMatch(/^Mulher/);
+      } else {
+        expect(cenario.perfilPaciente).not.toMatch(/^Mulher/);
+      }
+    },
+  );
 });
 
 describe("POST /osce/:id/mensagem", () => {

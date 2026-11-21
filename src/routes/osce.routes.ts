@@ -181,15 +181,19 @@ const router = Router();
 router.use(middlewareTokenInterno);
 router.use(middlewareAutenticacao);
 
-// Lista publica dos cenarios: so os campos que o aluno pode ver antes de escolher —
-// nunca o roteiro oculto, o diagnostico ou o checklist de avaliacao.
+// Lista publica dos cenarios: so os campos que o aluno pode ver antes de iniciar o
+// atendimento (card + contexto inicial) — nunca o perfil, a queixa do roteiro, o
+// roteiro oculto, o diagnostico ou o checklist de avaliacao.
 router.get("/cenarios", (_request: Request, response: Response) => {
-  const cenariosPublicos = CENARIOS_OSCE.map(({ id, titulo, especialidade, dificuldade }) => ({
-    id,
-    titulo,
-    especialidade,
-    dificuldade,
-  }));
+  const cenariosPublicos = CENARIOS_OSCE.map(
+    ({ id, titulo, especialidade, dificuldade, contextoInicial }) => ({
+      id,
+      titulo,
+      especialidade,
+      dificuldade,
+      contextoInicial,
+    }),
+  );
   return response.status(200).json({ cenarios: cenariosPublicos });
 });
 

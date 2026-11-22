@@ -32,6 +32,23 @@ const schemaFinalizar = z.object({
   historico: z.array(schemaTurno).max(60),
 });
 
+// Contexto opcional do caso, so pra orientar a reescrita (nao e persistido aqui).
+const schemaMelhorarTexto = z.object({
+  campo: z.string().trim().min(1).max(100),
+  texto: z.string().trim().min(1).max(4000),
+  contexto: z
+    .object({
+      titulo: z.string().trim().max(200).optional(),
+      especialidade: z.string().trim().max(200).optional(),
+      diagnosticoEsperado: z.string().trim().max(200).optional(),
+    })
+    .optional(),
+});
+
+// Campos visiveis ao aluno ANTES do diagnostico: nunca podem revelar o diagnostico
+// esperado, mesmo quando o professor o informa no contexto para dar mais nuance ao caso.
+const CAMPOS_SEM_DIAGNOSTICO = new Set(["queixaPaciente", "perfilPaciente", "titulo"]);
+
 type RespostaGerarConteudo = {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
 };
@@ -123,6 +140,32 @@ function montarInstrucaoAvaliacao(cenario: CenarioOsce): string {
     `calcule percentuais — isso nao e seu trabalho. ` +
     `Em "comentarioFinal", escreva 2-3 frases didaticas sobre o que faltou investigar.`
   );
+}
+
+type ContextoMelhorarTexto = z.infer<typeof schemaMelhorarTexto>["contexto"];
+
+// Instrucao de sistema para o botao "melhorar com IA" do editor de caso: aqui a IA
+// e so revisora de texto, nunca inventa dado clinico nem decide o diagnostico.
+function montarInstrucaoMelhorarTexto(campo: string, contexto: ContextoMelhorarTexto): string {
+  const partes = [
+    `Voce e um assistente de redacao clinica que ajuda professores de medicina a escrever ` +
+      `casos de simulacao OSCE (exame clinico estruturado).`,
+    `Reescreva o texto do campo "${campo}" em portugues clinico claro e objetivo: corrija ` +
+      `gramatica, ortografia e coesao, mas preserve EXATAMENTE todos os fatos, sintomas, ` +
+      `valores e dados clinicos informados — nunca invente, remova ou altere informacao.`,
+    `Devolva APENAS o texto reescrito, sem comentarios, aspas, titulos ou explicacoes.`,
+  ];
+
+  if (contexto?.titulo) partes.push(`Titulo do caso: ${contexto.titulo}.`);
+  if (contexto?.especialidade) partes.push(`Especialidade: ${contexto.especialidade}.`);
+  if (contexto?.diagnosticoEsperado && CAMPOS_SEM_DIAGNOSTICO.has(campo)) {
+    partes.push(
+      `Este texto e visivel ao aluno antes de ele chegar ao diagnostico: nao mencione nem ` +
+        `sugira o diagnostico ("${contexto.diagnosticoEsperado}") no texto reescrito.`,
+    );
+  }
+
+  return partes.join(" ");
 }
 
 // Schema que a Gemini e obrigada a seguir na resposta (responseSchema nativo da API):
@@ -319,6 +362,62 @@ router.post("/:id/finalizar", async (request: Request, response: Response, next:
         ...resultado,
       },
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Botao "melhorar com IA" de cada campo de texto do editor de caso OSCE: reescreve
+// so o texto recebido, sem persistir nada (quem guarda o caso e o Quiz-Service).
+router.post("/melhorar-texto", async (request: Request, response: Response, next: NextFunction) => {
+  try {
+    // So o professor edita casos OSCE; o aluno nunca chega a ver o editor.
+    if (request.usuario?.papel !== "PROFESSOR") {
+      throw new ErroAplicacao({
+        codigoStatus: 403,
+        codigo: CodigoDeErro.PROIBIDO,
+        mensagem: MENSAGENS.acessoApenasProfessor,
+      });
+    }
+
+    const corpo = schemaMelhorarTexto.safeParse(request.body);
+    if (!corpo.success) {
+      throw new ErroAplicacao({
+        codigoStatus: 400,
+        codigo: CodigoDeErro.REQUISICAO_INVALIDA,
+        mensagem: MENSAGENS.textoOsceInvalido,
+      });
+    }
+
+    if (!geminiClient) {
+      throw new ErroAplicacao({
+        codigoStatus: 503,
+        codigo: CodigoDeErro.IA_INDISPONIVEL,
+        mensagem: MENSAGENS.iaIndisponivel,
+      });
+    }
+
+    const { data } = await geminiClient.post<RespostaGerarConteudo>(
+      `/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
+      {
+        system_instruction: {
+          parts: [{ text: montarInstrucaoMelhorarTexto(corpo.data.campo, corpo.data.contexto) }],
+        },
+        contents: [{ role: "user", parts: [{ text: corpo.data.texto }] }],
+        generationConfig: GERACAO_THINKING_MINIMO,
+      },
+    );
+
+    const textoMelhorado = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!textoMelhorado) {
+      throw new ErroAplicacao({
+        codigoStatus: 502,
+        codigo: CodigoDeErro.ERRO_DOWNSTREAM,
+        mensagem: MENSAGENS.respostaIaIndisponivel,
+      });
+    }
+
+    return response.status(200).json({ textoMelhorado });
   } catch (error) {
     return next(error);
   }

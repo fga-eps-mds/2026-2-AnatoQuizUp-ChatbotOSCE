@@ -16,6 +16,10 @@ import { aplicacao } from "@/app";
 
 const CENARIO_ID = CENARIOS_OSCE[0].id;
 const token = jwt.sign({ sub: "aluno-1", papel: "aluno", status: "ativo" }, "test-secret");
+const tokenProfessor = jwt.sign(
+  { sub: "professor-1", papel: "PROFESSOR", status: "ATIVO" },
+  "test-secret",
+);
 // Mesmo default de teste de INTERNAL_TOKEN (ver obrigatoriaComDefaultDeTeste em config/env.ts).
 const TOKEN_INTERNO = "test-internal-token";
 
@@ -349,5 +353,108 @@ describe("POST /osce/:id/finalizar", () => {
     expect(resposta.body.avaliacao.percentual).toBe(100);
     expect(resposta.body.avaliacao.aprovado).toBe(true);
     expect(resposta.body.avaliacao.comentarioFinal).toBe(julgamentoIa.comentarioFinal);
+  });
+});
+
+describe("POST /osce/melhorar-texto", () => {
+  it("responde 401 sem token de acesso", async () => {
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .send({ campo: "titulo", texto: "Paciente com dor no peito ha 2 dias" });
+
+    expect(resposta.status).toBe(401);
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it("responde 403 quando o usuario nao e professor", async () => {
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ campo: "titulo", texto: "Paciente com dor no peito ha 2 dias" });
+
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.erro.codigo).toBe("PROIBIDO");
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it("responde 400 quando o texto esta vazio", async () => {
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${tokenProfessor}`)
+      .send({ campo: "titulo", texto: "" });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erro.codigo).toBe("REQUISICAO_INVALIDA");
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it("responde 400 quando o texto excede 4000 caracteres", async () => {
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${tokenProfessor}`)
+      .send({ campo: "roteiroOculto", texto: "a".repeat(4001) });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.erro.codigo).toBe("REQUISICAO_INVALIDA");
+  });
+
+  it("devolve o texto melhorado e nao revela o diagnostico em campos visiveis ao aluno", async () => {
+    postMock.mockResolvedValueOnce(respostaGemini("Paciente relata dor toracica ha dois dias."));
+
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${tokenProfessor}`)
+      .send({
+        campo: "queixaPaciente",
+        texto: "paciente c/ dor no peito ha 2 dias",
+        contexto: {
+          titulo: "Dor toracica",
+          especialidade: "Cardiologia",
+          diagnosticoEsperado: "Infarto agudo do miocardio",
+        },
+      });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.textoMelhorado).toBe("Paciente relata dor toracica ha dois dias.");
+
+    const instrucao = postMock.mock.calls[0][1].system_instruction.parts[0].text as string;
+    expect(instrucao).toContain('campo "queixaPaciente"');
+    expect(instrucao).toContain("nao mencione nem");
+    expect(instrucao).toContain("Infarto agudo do miocardio");
+  });
+
+  it("nao restringe o diagnostico em campos internos do examinador (ex.: roteiroOculto)", async () => {
+    postMock.mockResolvedValueOnce(respostaGemini("Historia clinica revisada."));
+
+    await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${tokenProfessor}`)
+      .send({
+        campo: "roteiroOculto",
+        texto: "historia clinica",
+        contexto: { diagnosticoEsperado: "Infarto agudo do miocardio" },
+      });
+
+    const instrucao = postMock.mock.calls[0][1].system_instruction.parts[0].text as string;
+    expect(instrucao).not.toContain("nao mencione nem");
+  });
+
+  it("responde 502 quando a IA nao devolve texto", async () => {
+    postMock.mockResolvedValueOnce({ data: { candidates: [] } });
+
+    const resposta = await request(aplicacao)
+      .post("/osce/melhorar-texto")
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${tokenProfessor}`)
+      .send({ campo: "titulo", texto: "Paciente com dor no peito" });
+
+    expect(resposta.status).toBe(502);
+    expect(resposta.body.erro.codigo).toBe("ERRO_DOWNSTREAM");
   });
 });

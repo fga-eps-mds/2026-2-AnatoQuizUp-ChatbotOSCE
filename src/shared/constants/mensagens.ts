@@ -15,4 +15,6 @@ export const MENSAGENS = {
   mensagemOsceInvalida: "Mensagem invalida: informe um texto de 1 a 500 caracteres.",
   historicoOsceInvalido: "Historico invalido: cada item precisa de autor (aluno/paciente) e texto.",
   avaliacaoOsceInvalida: "A IA nao devolveu uma avaliacao. Tente finalizar novamente.",
+  textoOsceInvalido: "Texto invalido: informe campo e texto de 1 a 4000 caracteres.",
+  acessoApenasProfessor: "Este recurso e exclusivo para professores.",
 } as const;

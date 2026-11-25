@@ -16,20 +16,27 @@ import { ErroAplicacao } from "@/shared/errors/erro-aplicacao";
 import { middlewareAutenticacao } from "@/shared/middlewares/autenticacao.middleware";
 import { middlewareTokenInterno } from "@/shared/middlewares/token-interno.middleware";
 import { pontuarRubrica } from "@/shared/utils/pontuacao-osce";
+import {
+  historicoParaContents,
+  montarInstrucaoPaciente,
+  montarSchemaRespostaPaciente,
+  montarTranscricao,
+  montarTurnosResposta,
+  schemaRespostaPaciente,
+  schemaTurno,
+} from "@/shared/utils/simulacao-paciente";
 
-// Uma troca do historico da simulacao: quem falou ("aluno" ou "paciente") e o texto.
-const schemaTurno = z.object({
-  autor: z.enum(["aluno", "paciente"]),
-  texto: z.string().trim().min(1).max(1000),
-});
+// O historico traz falas e cards de exame (US25); 100 turnos cobrem uma estacao longa
+// com varios exames pedidos.
+const LIMITE_TURNOS_HISTORICO = 100;
 
 const schemaMensagem = z.object({
   mensagem: z.string().trim().min(1).max(500),
-  historico: z.array(schemaTurno).max(60).default([]),
+  historico: z.array(schemaTurno).max(LIMITE_TURNOS_HISTORICO).default([]),
 });
 
 const schemaFinalizar = z.object({
-  historico: z.array(schemaTurno).max(60),
+  historico: z.array(schemaTurno).max(LIMITE_TURNOS_HISTORICO),
 });
 
 // Contexto opcional do caso, so pra orientar a reescrita (nao e persistido aqui).
@@ -80,27 +87,6 @@ function obterCenarioOuFalhar(id: string | string[]): CenarioOsce {
   return cenario;
 }
 
-// Instrucao de sistema para o "modo paciente": a IA interpreta o paciente do cenario,
-// nunca sai do personagem e nunca verbaliza o diagnostico esperado por conta propria.
-function montarInstrucaoPaciente(cenario: CenarioOsce): string {
-  return (
-    `Voce esta interpretando um paciente em uma simulacao OSCE (exame clinico estruturado) ` +
-    `para treinar estudantes de medicina. Responda sempre em portugues do Brasil, em primeira ` +
-    `pessoa, como o paciente descrito abaixo.\n\n` +
-    `Perfil do paciente: ${cenario.perfilPaciente}\n` +
-    `Queixa principal: ${cenario.queixaPrincipal}\n` +
-    `Historia e achados reais (revele apenas o que for perguntado, nunca tudo de uma vez): ${cenario.roteiroOculto}\n\n` +
-    `Regras: nunca saia do personagem de paciente; nunca diga o nome de um diagnostico medico ` +
-    `(ex.: nao diga "${cenario.diagnosticoEsperado}"); nunca mencione que isto e uma simulacao; ` +
-    `se o aluno perguntar algo que o paciente nao saberia responder tecnicamente, responda como ` +
-    `uma pessoa leiga responderia.\n\n` +
-    `Encerramento: quando o medico se despedir ou disser que vai encerrar a consulta, ` +
-    `responda com UMA unica despedida curta (uma frase). Se depois disso o medico ` +
-    `continuar se despedindo, nao repita a despedida nem puxe assunto novo: responda ` +
-    `de forma minima (por exemplo, apenas "Ok."), sem outra despedida.`
-  );
-}
-
 // Instrucao de sistema para a avaliacao final: aqui a IA sai do personagem e vira
 // examinador. Ela NAO calcula nota — so (a) classifica cada item do checklist contra
 // as ancoras comportamentais do item e (b) atribui uma nota global holistica. Pesos,
@@ -125,7 +111,10 @@ function montarInstrucaoAvaliacao(cenario: CenarioOsce): string {
   return (
     `Voce e um examinador de OSCE avaliando a anamnese de um estudante de medicina. ` +
     `Responda em portugues do Brasil. Nao interprete mais o paciente — avalie a conversa.\n` +
-    `Diagnostico esperado pelo caso: ${cenario.diagnosticoEsperado}.\n\n` +
+    `Diagnostico esperado pelo caso: ${cenario.diagnosticoEsperado}.\n` +
+    `Na transcricao, as linhas entre colchetes nao sao falas: registram o resultado de um ` +
+    `exame que o aluno pediu e recebeu, ou um exame pedido que nao estava disponivel no ` +
+    `caso. Use-as como evidencia de que o aluno solicitou aquele exame.\n\n` +
     `PARTE 1 — checklist. Para CADA item abaixo, escolha o nivel usando as ancoras do ` +
     `proprio item como criterio (nao a sua impressao geral):\n${rubrica}\n\n` +
     `Niveis possiveis: "competente" (a ancora COMPETENTE foi cumprida), "parcial" ` +
@@ -214,14 +203,6 @@ const schemaAvaliacaoIa = z.object({
   comentarioFinal: z.string().trim().default(""),
 });
 
-// Converte o historico em "contents" da Gemini: aluno = user, paciente = model.
-function historicoParaContents(historico: z.infer<typeof schemaTurno>[]) {
-  return historico.map((turno) => ({
-    role: turno.autor === "aluno" ? "user" : "model",
-    parts: [{ text: turno.texto }],
-  }));
-}
-
 const router = Router();
 
 // Primeiro confirma que a chamada veio do BFF, depois valida o JWT do usuario final.
@@ -244,7 +225,8 @@ router.get("/cenarios", (_request: Request, response: Response) => {
   return response.status(200).json({ cenarios: cenariosPublicos });
 });
 
-// Uma fala do aluno no papel de medico — a IA responde em personagem como o paciente.
+// Uma fala do aluno no papel de medico — a IA responde em personagem como o paciente
+// e identifica os exames pedidos; os resultados saem do cadastro do caso (US25).
 router.post("/:id/mensagem", async (request: Request, response: Response, next: NextFunction) => {
   try {
     const cenario = obterCenarioOuFalhar(request.params.id);
@@ -270,16 +252,24 @@ router.post("/:id/mensagem", async (request: Request, response: Response, next: 
       `/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
       {
         system_instruction: { parts: [{ text: montarInstrucaoPaciente(cenario) }] },
-        contents: [
-          ...historicoParaContents(corpo.data.historico),
-          { role: "user", parts: [{ text: corpo.data.mensagem }] },
-        ],
-        generationConfig: GERACAO_THINKING_MINIMO,
+        contents: historicoParaContents([
+          ...corpo.data.historico,
+          { autor: "aluno", texto: corpo.data.mensagem },
+        ]),
+        generationConfig: {
+          ...GERACAO_THINKING_MINIMO,
+          responseMimeType: "application/json",
+          responseSchema: montarSchemaRespostaPaciente(cenario),
+        },
       },
     );
 
-    const resposta = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!resposta) {
+    const bruto = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const interpretacao = bruto ? schemaRespostaPaciente.safeParse(parseJsonOuNulo(bruto)) : null;
+    // Fala e exames vem juntos: a IA identifica o que foi pedido e os resultados sao
+    // copiados do cadastro do caso (montarTurnosResposta), nunca escritos pela IA.
+    const turnos = interpretacao?.success ? montarTurnosResposta(cenario, interpretacao.data) : [];
+    if (!turnos.length) {
       throw new ErroAplicacao({
         codigoStatus: 502,
         codigo: CodigoDeErro.ERRO_DOWNSTREAM,
@@ -287,7 +277,10 @@ router.post("/:id/mensagem", async (request: Request, response: Response, next: 
       });
     }
 
-    return response.status(200).json({ resposta });
+    // `resposta` continua sendo so a fala do paciente (contrato anterior); os cards de
+    // exame vem em `turnos`, na ordem em que o aluno deve ve-los.
+    const fala = turnos.find((turno) => turno.autor === "paciente")?.texto ?? "";
+    return response.status(200).json({ resposta: fala, turnos });
   } catch (error) {
     return next(error);
   }
@@ -315,9 +308,7 @@ router.post("/:id/finalizar", async (request: Request, response: Response, next:
       });
     }
 
-    const transcricao = corpo.data.historico
-      .map((turno) => `${turno.autor === "aluno" ? "Aluno" : "Paciente"}: ${turno.texto}`)
-      .join("\n");
+    const transcricao = montarTranscricao(corpo.data.historico);
 
     const { data } = await geminiClient.post<RespostaGerarConteudo>(
       `/v1beta/models/${env.GEMINI_MODEL}:generateContent`,

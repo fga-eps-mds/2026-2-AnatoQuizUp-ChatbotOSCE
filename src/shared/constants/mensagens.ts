@@ -13,7 +13,7 @@ export const MENSAGENS = {
   falhaServicoDownstream: "Falha ao consultar o servico downstream.",
   cenarioOsceNaoEncontrado: "Cenario de simulacao OSCE nao encontrado.",
   mensagemOsceInvalida: "Mensagem invalida: informe um texto de 1 a 500 caracteres.",
-  historicoOsceInvalido: "Historico invalido: cada item precisa de autor (aluno/paciente) e texto.",
+  historicoOsceInvalido: "Historico invalido: cada item precisa de autor (aluno, paciente, exame ou indisponivel) e texto; itens de exame precisam do nome do exame.",
   avaliacaoOsceInvalida: "A IA nao devolveu uma avaliacao. Tente finalizar novamente.",
   textoOsceInvalido: "Texto invalido: informe campo e texto de 1 a 4000 caracteres.",
   acessoApenasProfessor: "Este recurso e exclusivo para professores.",

@@ -70,6 +70,13 @@ export type ContextoInicialOsce = {
   queixa: string;
 };
 
+// Exame complementar cadastrado no caso: o aluno so ve o resultado se pedir o exame
+// pelo nome (ou sigla/sinonimo) durante o atendimento.
+export type ExameComplementarOsce = {
+  nome: string;
+  resultado: string;
+};
+
 export type CenarioOsce = {
   id: string;
   titulo: string;
@@ -82,8 +89,16 @@ export type CenarioOsce = {
   // `contextoInicial`.
   perfilPaciente: string;
   queixaPrincipal: string;
-  // Historia, exame fisico e achados que o aluno so descobre perguntando — nunca exposto.
-  roteiroOculto: string;
+  // Roteiro do paciente, nos mesmos campos do cadastro de casos do Quiz-Service (US26):
+  //  - historiaSintomas: o que o PACIENTE sabe e conta quando perguntado. E a unica
+  //    parte do roteiro que vai para o prompt do paciente.
+  //  - exameFisico: achados que o aluno so recebe quando pede o exame fisico. O
+  //    paciente nao conhece (nao vai para o prompt) e o texto e devolvido literal.
+  //  - exames: exames complementares com resultado. Mesma regra: o paciente nao
+  //    conhece; o resultado sai daqui, nunca da IA (US25).
+  historiaSintomas: string;
+  exameFisico: string;
+  exames: ExameComplementarOsce[];
   diagnosticoEsperado: string;
   // Rubrica usada so na avaliacao final (POST /ia/osce/:id/finalizar).
   rubrica: ItemRubrica[];
@@ -150,11 +165,27 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     perfilPaciente:
       "Homem, 58 anos, caminhoneiro, ansioso, fala de forma direta e as vezes impaciente.",
     queixaPrincipal: "Dor no peito ha 2 horas.",
-    roteiroOculto:
+    historiaSintomas:
       "Dor em aperto, retroesternal, irradia para o braço esquerdo, iniciou em repouso, " +
-      "piora com esforço, acompanhada de sudorese e nausea. Historico de hipertensao mal " +
-      "controlada e tabagismo (1 maco/dia ha 20 anos). Nega dor a palpacao do torax. Sinais " +
-      "vitais se perguntados: PA 160/95, FC 98, afebril.",
+      "piora com esforço, acompanhada de sudorese e náusea. Histórico de hipertensão mal " +
+      "controlada e tabagismo (1 maço/dia há 20 anos).",
+    exameFisico:
+      "PA 160/95 mmHg, FC 98 bpm, afebril. Sudoreico. Tórax sem dor à palpação. Ausculta " +
+      "cardíaca com bulhas rítmicas, sem sopros. Ausculta pulmonar sem alterações.",
+    exames: [
+      {
+        nome: "Eletrocardiograma",
+        resultado: "Ritmo sinusal, FC 98 bpm. Infradesnivelamento do segmento ST de 1 mm em V4–V6.",
+      },
+      {
+        nome: "Troponina",
+        resultado: "Troponina I ultrassensível: 85 ng/L (referência < 34 ng/L).",
+      },
+      {
+        nome: "Radiografia de tórax",
+        resultado: "Sem alterações agudas.",
+      },
+    ],
     diagnosticoEsperado: "Síndrome coronariana aguda (angina/infarto)",
     rubrica: [
       {
@@ -310,10 +341,29 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     perfilPaciente:
       "Mulher, 34 anos, professora, fala rapido por causa da dor, fica irritada se repetirem a pergunta.",
     queixaPrincipal: "Dor de cabeça muito forte, começou de repente.",
-    roteiroOculto:
-      "Pior dor de cabeça da vida, inicio abrupto durante esforco fisico, descreve como " +
-      "'explosao'. Associada a rigidez de nuca e fotofobia. Nega trauma. Nega febre. Historico " +
-      "de enxaqueca previa, mas descreve essa crise como diferente de todas as anteriores.",
+    historiaSintomas:
+      "Pior dor de cabeça da vida, início abrupto durante esforço físico, descreve como " +
+      "'explosão'. Sente o pescoço duro e a luz incomoda muito. Nega trauma. Nega febre. " +
+      "Histórico de enxaqueca prévia, mas descreve esta crise como diferente de todas as anteriores.",
+    exameFisico:
+      "PA 150/90 mmHg, FC 92 bpm, temperatura axilar 36,8 °C. Consciente e orientada, " +
+      "Glasgow 15. Rigidez de nuca presente. Pupilas isocóricas e fotorreagentes. Sem déficit " +
+      "motor focal.",
+    exames: [
+      {
+        nome: "Tomografia de crânio sem contraste",
+        resultado:
+          "Hiperdensidade nas cisternas da base e na fissura sylviana, compatível com sangue no espaço subaracnóideo.",
+      },
+      {
+        nome: "Punção lombar (análise do líquor)",
+        resultado: "Líquor xantocrômico, com hemácias que não diminuem entre o primeiro e o último tubo.",
+      },
+      {
+        nome: "Hemograma completo",
+        resultado: "Sem alterações.",
+      },
+    ],
     diagnosticoEsperado: "Hemorragia subaracnoidea (suspeita)",
     rubrica: [
       {
@@ -461,10 +511,29 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
     perfilPaciente:
       "Adolescente, 16 anos, estudante, responde curto e fica constrangido com perguntas sobre apetite/evacuacao.",
     queixaPrincipal: "Dor na barriga desde ontem.",
-    roteiroOculto:
-      "Dor comecou perto do umbigo e migrou para o lado direito inferior do abdome. Piora " +
-      "ao andar ou tossir. Associada a nausea e perda de apetite. Febre baixa (37.8C). Sem " +
-      "diarreia. Dor a palpacao em ponto de McBurney se perguntado sobre exame fisico.",
+    historiaSintomas:
+      "Dor começou perto do umbigo e migrou para o lado direito inferior do abdome. Piora " +
+      "ao andar ou tossir. Associada a náusea e perda de apetite. Sentiu febre baixa desde " +
+      "ontem à noite. Sem diarreia.",
+    exameFisico:
+      "Temperatura axilar 37,8 °C, FC 100 bpm, PA 120/75 mmHg. Abdome com dor à palpação no " +
+      "ponto de McBurney e descompressão brusca dolorosa (sinal de Blumberg positivo). " +
+      "Ruídos hidroaéreos presentes.",
+    exames: [
+      {
+        nome: "Hemograma completo",
+        resultado: "Leucocitose de 14.500/mm³ com desvio à esquerda (8% de bastões).",
+      },
+      {
+        nome: "Ultrassonografia de abdome",
+        resultado:
+          "Apêndice com 9 mm de diâmetro, não compressível, com borramento da gordura ao redor.",
+      },
+      {
+        nome: "Exame de urina (EAS)",
+        resultado: "Sem alterações.",
+      },
+    ],
     diagnosticoEsperado: "Apendicite aguda",
     rubrica: [
       {

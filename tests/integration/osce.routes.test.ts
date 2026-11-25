@@ -315,6 +315,24 @@ describe("POST /osce/:id/finalizar", () => {
     expect(resposta.body.erro.codigo).toBe("REQUISICAO_INVALIDA");
   });
 
+  it("responde 502 quando a IA nao devolve texto", async () => {
+    postMock.mockResolvedValueOnce({ data: { candidates: [] } });
+
+    const resposta = await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/finalizar`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        historico: [
+          { autor: "aluno", texto: "Onde dói?" },
+          { autor: "paciente", texto: "No peito." },
+        ],
+      });
+
+    expect(resposta.status).toBe(502);
+    expect(resposta.body.erro.codigo).toBe("ERRO_DOWNSTREAM");
+  });
+
   it("responde 502 quando a IA devolve JSON invalido", async () => {
     postMock.mockResolvedValueOnce(respostaGemini("isto nao e json"));
 

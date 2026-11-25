@@ -152,7 +152,7 @@ export const NOTA_GLOBAL_APROVACAO = 2;
 export const CENARIOS_OSCE: CenarioOsce[] = [
   {
     id: "dor-toracica",
-    titulo: "Dor torácica no pronto-socorro",
+    titulo: "Dor no peito há 2 horas",
     especialidade: "Cardiologia",
     dificuldade: "Médio",
     contextoInicial: {
@@ -328,7 +328,7 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
   },
   {
     id: "cefaleia-subita",
-    titulo: "Cefaleia súbita e intensa",
+    titulo: "Dor de cabeça forte",
     especialidade: "Neurologia",
     dificuldade: "Difícil",
     contextoInicial: {
@@ -498,7 +498,7 @@ export const CENARIOS_OSCE: CenarioOsce[] = [
   },
   {
     id: "dor-abdominal",
-    titulo: "Dor abdominal em fossa ilíaca direita",
+    titulo: "Dor abdominal há 1 dia",
     especialidade: "Gastroenterologia / Cirurgia",
     dificuldade: "Fácil",
     contextoInicial: {

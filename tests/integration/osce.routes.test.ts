@@ -168,21 +168,23 @@ describe("GET /osce/cenarios", () => {
   });
 });
 
-describe("contextoInicial dos cenarios", () => {
-  const normalizar = (texto: string) =>
-    texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const normalizar = (texto: string) =>
+  texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+// Palavras significativas do diagnostico (ex.: "apendicite", "coronariana").
+const palavrasDoDiagnostico = (diagnostico: string) =>
+  normalizar(diagnostico)
+    .split(/[^a-z]+/)
+    .filter((palavra) => palavra.length > 5);
+
+describe("contextoInicial dos cenarios", () => {
   it.each(CENARIOS_OSCE.map((cenario) => [cenario.id, cenario] as const))(
     "%s nao revela o diagnostico esperado",
     (_id, cenario) => {
       const contexto = normalizar(JSON.stringify(cenario.contextoInicial));
       expect(contexto).not.toContain(normalizar(cenario.diagnosticoEsperado));
-      // Cada palavra significativa do diagnostico (ex.: "apendicite", "coronariana")
-      // tambem nao pode aparecer isolada.
-      const palavras = normalizar(cenario.diagnosticoEsperado)
-        .split(/[^a-z]+/)
-        .filter((palavra) => palavra.length > 5);
-      for (const palavra of palavras) {
+      // Cada palavra significativa do diagnostico tambem nao pode aparecer isolada.
+      for (const palavra of palavrasDoDiagnostico(cenario.diagnosticoEsperado)) {
         expect(contexto).not.toContain(palavra);
       }
     },
@@ -206,6 +208,25 @@ describe("contextoInicial dos cenarios", () => {
         expect(cenario.perfilPaciente).toMatch(/^Mulher/);
       } else {
         expect(cenario.perfilPaciente).not.toMatch(/^Mulher/);
+      }
+    },
+  );
+});
+
+describe("titulo dos cenarios", () => {
+  // O titulo aparece no card antes do atendimento: nao pode entregar o
+  // diagnostico nem itens criticos da rubrica (inicio subito, localizacao).
+  const termosProibidos = ["subit", "fossa iliaca"];
+
+  it.each(CENARIOS_OSCE.map((cenario) => [cenario.id, cenario] as const))(
+    "%s nao sugere o diagnostico no titulo",
+    (_id, cenario) => {
+      const titulo = normalizar(cenario.titulo);
+      for (const palavra of palavrasDoDiagnostico(cenario.diagnosticoEsperado)) {
+        expect(titulo).not.toContain(palavra);
+      }
+      for (const termo of termosProibidos) {
+        expect(titulo).not.toContain(termo);
       }
     },
   );

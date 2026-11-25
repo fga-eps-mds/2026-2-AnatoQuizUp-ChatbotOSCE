@@ -27,6 +27,22 @@ const respostaGemini = (texto: string) => ({
   data: { candidates: [{ content: { parts: [{ text: texto }] } }] },
 });
 
+// Resposta estruturada do "modo paciente" (US25): fala + exames identificados.
+const respostaPaciente = (campos: {
+  fala: string;
+  pediuExameFisico?: boolean;
+  examesSolicitados?: string[];
+  examesNaoCadastrados?: string[];
+}) =>
+  respostaGemini(
+    JSON.stringify({
+      pediuExameFisico: false,
+      examesSolicitados: [],
+      examesNaoCadastrados: [],
+      ...campos,
+    }),
+  );
+
 beforeEach(() => {
   postMock.mockReset();
 });
@@ -142,7 +158,9 @@ describe("GET /osce/cenarios", () => {
         ["idade", "local", "papelEstudante", "queixa", "sexo"],
       );
       expect(cenario).not.toHaveProperty("diagnosticoEsperado");
-      expect(cenario).not.toHaveProperty("roteiroOculto");
+      expect(cenario).not.toHaveProperty("historiaSintomas");
+      expect(cenario).not.toHaveProperty("exameFisico");
+      expect(cenario).not.toHaveProperty("exames");
       expect(cenario).not.toHaveProperty("perfilPaciente");
       expect(cenario).not.toHaveProperty("queixaPrincipal");
       expect(cenario).not.toHaveProperty("rubrica");
@@ -217,7 +235,9 @@ describe("POST /osce/:id/mensagem", () => {
   });
 
   it("devolve a fala do paciente interpretada pela IA", async () => {
-    postMock.mockResolvedValueOnce(respostaGemini("Estou com dor no peito ha duas horas."));
+    postMock.mockResolvedValueOnce(
+      respostaPaciente({ fala: "Estou com dor no peito ha duas horas." }),
+    );
 
     const resposta = await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
@@ -230,11 +250,156 @@ describe("POST /osce/:id/mensagem", () => {
 
     expect(resposta.status).toBe(200);
     expect(resposta.body.resposta).toBe("Estou com dor no peito ha duas horas.");
+    expect(resposta.body.turnos).toEqual([
+      { autor: "paciente", texto: "Estou com dor no peito ha duas horas." },
+    ]);
     expect(postMock).toHaveBeenCalledTimes(1);
   });
 
+  it("pede JSON estruturado com os nomes dos exames do caso como enum", async () => {
+    postMock.mockResolvedValueOnce(respostaPaciente({ fala: "Tudo bem." }));
+
+    await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Vou pedir um ECG." });
+
+    const payload = postMock.mock.calls[0][1] as {
+      generationConfig: {
+        responseMimeType: string;
+        responseSchema: {
+          properties: { examesSolicitados: { items: { enum: string[] } } };
+        };
+      };
+    };
+    expect(payload.generationConfig.responseMimeType).toBe("application/json");
+    expect(payload.generationConfig.responseSchema.properties.examesSolicitados.items.enum).toEqual(
+      CENARIOS_OSCE[0].exames.map((exame) => exame.nome),
+    );
+  });
+
+  it("nao coloca exame fisico nem resultados de exames na instrucao do paciente", async () => {
+    postMock.mockResolvedValueOnce(respostaPaciente({ fala: "Oi, doutor." }));
+    const cenario = CENARIOS_OSCE[0];
+
+    await request(aplicacao)
+      .post(`/osce/${cenario.id}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Bom dia." });
+
+    const payload = postMock.mock.calls[0][1] as {
+      system_instruction: { parts: { text: string }[] };
+    };
+    const instrucao = payload.system_instruction.parts[0].text;
+    expect(instrucao).toContain(cenario.historiaSintomas);
+    expect(instrucao).not.toContain(cenario.exameFisico);
+    for (const exame of cenario.exames) {
+      expect(instrucao).toContain(exame.nome);
+      expect(instrucao).not.toContain(exame.resultado);
+    }
+    expect(instrucao).toContain("diga com naturalidade que nao sabe");
+  });
+
+  it("devolve o resultado cadastrado do exame pedido, sem passar pela fala do paciente", async () => {
+    const cenario = CENARIOS_OSCE[0];
+    const ecg = cenario.exames[0];
+    postMock.mockResolvedValueOnce(
+      respostaPaciente({
+        fala: "Tudo bem, doutor.",
+        pediuExameFisico: true,
+        examesSolicitados: [ecg.nome],
+        examesNaoCadastrados: ["Tomografia de tórax"],
+      }),
+    );
+
+    const resposta = await request(aplicacao)
+      .post(`/osce/${cenario.id}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Vou examinar o senhor e pedir um ECG e uma tomografia de tórax." });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.resposta).toBe("Tudo bem, doutor.");
+    expect(resposta.body.turnos).toEqual([
+      { autor: "paciente", texto: "Tudo bem, doutor." },
+      { autor: "exame", exame: "Exame físico", texto: cenario.exameFisico },
+      { autor: "exame", exame: ecg.nome, texto: ecg.resultado },
+      {
+        autor: "indisponivel",
+        exame: "Tomografia de tórax",
+        texto: "Não disponível neste caso.",
+      },
+    ]);
+  });
+
+  it("aceita cards de exame no historico sem repassar o resultado ao paciente", async () => {
+    const cenario = CENARIOS_OSCE[0];
+    const ecg = cenario.exames[0];
+    postMock.mockResolvedValueOnce(respostaPaciente({ fala: "Nao sei dizer, doutor." }));
+
+    const resposta = await request(aplicacao)
+      .post(`/osce/${cenario.id}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        mensagem: "O senhor sabe o que deu no exame?",
+        historico: [
+          { autor: "aluno", texto: "Solicito um ECG." },
+          { autor: "paciente", texto: "Tudo bem." },
+          { autor: "exame", exame: ecg.nome, texto: ecg.resultado },
+        ],
+      });
+
+    expect(resposta.status).toBe(200);
+    const payload = postMock.mock.calls[0][1] as {
+      contents: { role: string; parts: { text: string }[] }[];
+    };
+    expect(JSON.stringify(payload.contents)).not.toContain(ecg.resultado);
+  });
+
+  it("responde 400 para card de exame sem o nome do exame", async () => {
+    const resposta = await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        mensagem: "E agora?",
+        historico: [{ autor: "exame", texto: "Resultado qualquer" }],
+      });
+
+    expect(resposta.status).toBe(400);
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it("responde 502 quando a IA devolve JSON fora do formato", async () => {
+    postMock.mockResolvedValueOnce(respostaGemini("Sou o paciente e respondi em texto livre."));
+
+    const resposta = await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Bom dia." });
+
+    expect(resposta.status).toBe(502);
+    expect(resposta.body.erro.codigo).toBe("ERRO_DOWNSTREAM");
+  });
+
+  it("responde 502 quando a IA nao devolve fala nem exame", async () => {
+    postMock.mockResolvedValueOnce(respostaPaciente({ fala: "" }));
+
+    const resposta = await request(aplicacao)
+      .post(`/osce/${CENARIO_ID}/mensagem`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mensagem: "Bom dia." });
+
+    expect(resposta.status).toBe(502);
+  });
+
   it("envia a regra de encerramento na instrucao do paciente", async () => {
-    postMock.mockResolvedValueOnce(respostaGemini("Obrigado, doutor. Tchau."));
+    postMock.mockResolvedValueOnce(respostaPaciente({ fala: "Obrigado, doutor. Tchau." }));
 
     await request(aplicacao)
       .post(`/osce/${CENARIO_ID}/mensagem`)
@@ -371,6 +536,33 @@ describe("POST /osce/:id/finalizar", () => {
     expect(resposta.body.avaliacao.percentual).toBe(100);
     expect(resposta.body.avaliacao.aprovado).toBe(true);
     expect(resposta.body.avaliacao.comentarioFinal).toBe(julgamentoIa.comentarioFinal);
+  });
+
+  it("inclui os exames pedidos e entregues na transcricao avaliada", async () => {
+    const cenario = CENARIOS_OSCE[0];
+    const ecg = cenario.exames[0];
+    postMock.mockResolvedValueOnce(respostaGemini("{}"));
+
+    await request(aplicacao)
+      .post(`/osce/${cenario.id}/finalizar`)
+      .set("x-internal-token", TOKEN_INTERNO)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        historico: [
+          { autor: "aluno", texto: "Solicito um ECG e uma cintilografia." },
+          { autor: "exame", exame: ecg.nome, texto: ecg.resultado },
+          { autor: "indisponivel", exame: "Cintilografia", texto: "Não disponível neste caso." },
+        ],
+      });
+
+    const payload = postMock.mock.calls[0][1] as {
+      contents: { parts: { text: string }[] }[];
+    };
+    const transcricao = payload.contents[0].parts[0].text;
+    expect(transcricao).toContain(`[Resultado entregue ao aluno — ${ecg.nome}]: ${ecg.resultado}`);
+    expect(transcricao).toContain(
+      "[Exame pedido pelo aluno e indisponivel no caso — Cintilografia]",
+    );
   });
 });
 
